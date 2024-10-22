@@ -115,6 +115,7 @@ class AppBackupWorker(
             Log.e(TAG, "Error while running setForeground: ", e)
         }
         val freeSpace = backendManager.getFreeSpace()
+        Log.i(TAG, "freeSpace: $freeSpace")
         if (freeSpace != null && freeSpace < MIN_FREE_SPACE) {
             nm.onInsufficientSpaceError()
             return Result.failure()
