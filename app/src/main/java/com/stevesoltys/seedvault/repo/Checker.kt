@@ -49,20 +49,25 @@ internal class Checker(
         private set
 
     @WorkerThread
-    suspend fun getBackupSize(): Long {
+    suspend fun getBackupSize(): Long? {
         // get all snapshots
         val folder = TopLevelFolder(crypto.repoId)
         val handles = mutableListOf<AppBackupFileType.Snapshot>()
-        backendManager.backend.list(folder, AppBackupFileType.Snapshot::class) { fileInfo ->
-            handles.add(fileInfo.fileHandle as AppBackupFileType.Snapshot)
+        try {
+            backendManager.backend.list(folder, AppBackupFileType.Snapshot::class) { fileInfo ->
+                handles.add(fileInfo.fileHandle as AppBackupFileType.Snapshot)
+            }
+            val snapshots = snapshotManager.onSnapshotsLoaded(handles)
+            this.snapshots = snapshots // remember loaded snapshots
+            this.handleSize = handles.size // remember number of snapshot handles we had
+        } catch (e: Exception) {
+            log.error(e) { "Error loading snapshots: " }
+            // we swallow this exception, because an error will be shown in the next step
+            return null
         }
-        val snapshots = snapshotManager.onSnapshotsLoaded(handles)
-        this.snapshots = snapshots // remember loaded snapshots
-        this.handleSize = handles.size // remember number of snapshot handles we had
-
         // get total disk space used by snapshots
         val sizeMap = mutableMapOf<String, Int>()
-        snapshots.forEach { snapshot ->
+        snapshots?.forEach { snapshot ->
             // add sizes to a map first, so we don't double count
             snapshot.blobsMap.forEach { (chunkId, blob) -> sizeMap[chunkId] = blob.length }
         }
@@ -73,7 +78,12 @@ internal class Checker(
     suspend fun check(percent: Int) {
         check(percent in 0..100) { "Percent $percent out of bounds." }
 
-        if (snapshots == null) getBackupSize() // just get size again to be sure we get snapshots
+        if (snapshots == null) try {
+            getBackupSize() // just get size again to be sure we get snapshots
+        } catch (e: Exception) {
+            nm.onCheckFinishedWithError(0, 0)
+            checkerResult = CheckerResult.GeneralError(e)
+        }
         val snapshots = snapshots ?: error("Snapshots still null")
         val handleSize = handleSize ?: error("Handle size still null")
         check(handleSize >= snapshots.size) {

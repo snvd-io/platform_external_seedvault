@@ -56,9 +56,14 @@ class AppCheckResultActivity : BackupActivity() {
             is CheckerResult.Success -> onSuccess(result)
             is CheckerResult.Error -> onError(result)
             is CheckerResult.GeneralError, null -> {
-                // TODO
-                if (result == null) log.error { "No more result" }
-                else log.info((result as CheckerResult.GeneralError).e) { "Error: " }
+                if (result == null) {
+                    val str = getString(R.string.backup_app_check_error_no_result)
+                    val e = NullPointerException(str)
+                    val r = CheckerResult.GeneralError(e)
+                    onGeneralError(r)
+                } else {
+                    onGeneralError(result as CheckerResult.GeneralError)
+                }
             }
         }
         checker.clear()
@@ -98,14 +103,8 @@ class AppCheckResultActivity : BackupActivity() {
                 R.string.backup_app_check_error_only_broken_snapshots,
                 result.existingSnapshots,
             )
-        } else if (result.existingSnapshots > result.snapshots.size) {
-            getString(
-                R.string.backup_app_check_error_some_snapshots,
-                result.existingSnapshots,
-                result.snapshots.size,
-            )
         } else {
-            getString(R.string.backup_app_check_error_read_all_snapshots, result.snapshots.size)
+            getString(R.string.backup_app_check_error_has_snapshots, result.existingSnapshots)
         }
         requireViewById<TextView>(R.id.introView).text = intro
 
@@ -119,6 +118,18 @@ class AppCheckResultActivity : BackupActivity() {
             listener = null,
             items = items,
         )
+    }
+
+    private fun onGeneralError(result: CheckerResult.GeneralError) {
+        setContentView(R.layout.activity_check_result)
+        requireViewById<ImageView>(R.id.imageView).setImageResource(R.drawable.ic_cloud_error)
+        requireViewById<TextView>(R.id.titleView).setText(R.string.backup_app_check_error_title)
+
+        requireViewById<TextView>(R.id.introView).text =
+            getString(R.string.backup_app_check_error_no_snapshots)
+
+        requireViewById<TextView>(R.id.disclaimerView).text =
+            "${result.e.localizedMessage}\n\n${result.e}"
     }
 
 }

@@ -50,9 +50,11 @@ class AppCheckFragment : Fragment() {
         }
 
         viewModel.backupSize.observe(viewLifecycleOwner) {
-            slider.labelBehavior = LABEL_VISIBLE
-            slider.invalidate()
-            onSliderChanged(slider.value)
+            if (it != null) {
+                slider.labelBehavior = LABEL_VISIBLE
+                slider.invalidate()
+                onSliderChanged(slider.value)
+            }
             // we can stop observing as the loaded size won't change again
             viewModel.backupSize.removeObservers(viewLifecycleOwner)
         }
