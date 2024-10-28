@@ -3,22 +3,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-package com.stevesoltys.seedvault.settings
+package com.stevesoltys.seedvault.ui.check
 
 import android.os.Bundle
-import android.text.format.Formatter.formatShortFileSize
+import android.text.format.Formatter
 import android.view.LayoutInflater
 import android.view.View
-import android.view.View.GONE
-import android.view.View.VISIBLE
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.fragment.app.Fragment
-import com.google.android.material.slider.LabelFormatter.LABEL_VISIBLE
+import com.google.android.material.slider.LabelFormatter
 import com.google.android.material.slider.Slider
 import com.stevesoltys.seedvault.R
+import com.stevesoltys.seedvault.settings.SettingsViewModel
 import org.koin.androidx.viewmodel.ext.android.activityViewModel
 
 private const val WARN_PERCENT = 25
@@ -42,7 +41,7 @@ class AppCheckFragment : Fragment() {
         // label not scrolling will be fixed in material-components 1.12.0 (next update)
         slider.setLabelFormatter { value ->
             viewModel.backupSize.value?.let {
-                formatShortFileSize(context, (it * value / 100).toLong())
+                Formatter.formatShortFileSize(context, (it * value / 100).toLong())
             } ?: "${value.toInt()}%"
         }
         slider.addOnChangeListener { _, value, _ ->
@@ -51,7 +50,7 @@ class AppCheckFragment : Fragment() {
 
         viewModel.backupSize.observe(viewLifecycleOwner) {
             if (it != null) {
-                slider.labelBehavior = LABEL_VISIBLE
+                slider.labelBehavior = LabelFormatter.LABEL_VISIBLE
                 slider.invalidate()
                 onSliderChanged(slider.value)
             }
@@ -81,7 +80,7 @@ class AppCheckFragment : Fragment() {
             size * value / 100 > WARN_BYTES
         }
         // only update label visibility when different from before
-        val newVisibility = if (showWarning) VISIBLE else GONE
+        val newVisibility = if (showWarning) View.VISIBLE else View.GONE
         if (sliderLabel.visibility != newVisibility) {
             sliderLabel.visibility = newVisibility
         }

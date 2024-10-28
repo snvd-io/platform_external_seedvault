@@ -51,7 +51,7 @@
             tools:summary="Next backup: Never" />
 
         <androidx.preference.Preference
-            app:fragment="com.stevesoltys.seedvault.settings.AppCheckFragment"
+            app:fragment="com.stevesoltys.seedvault.ui.check.AppCheckFragment"
             app:icon="@drawable/ic_cloud_search"
             app:key="backup_scheduling"
             app:summary="@string/settings_backup_app_check_summary"
