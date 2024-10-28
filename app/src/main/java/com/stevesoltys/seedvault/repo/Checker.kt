@@ -22,7 +22,9 @@ import org.calyxos.seedvault.core.toHexString
 import java.security.DigestInputStream
 import java.security.GeneralSecurityException
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentSkipListSet
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
@@ -36,6 +38,7 @@ internal class Checker(
 ) {
     private val log = KotlinLogging.logger { }
 
+    private var handleSize: Int? = null
     private var snapshots: List<Snapshot>? = null
     private val concurrencyLimit: Int
         get() {
@@ -55,6 +58,7 @@ internal class Checker(
         }
         val snapshots = snapshotManager.onSnapshotsLoaded(handles)
         this.snapshots = snapshots // remember loaded snapshots
+        this.handleSize = handles.size // remember number of snapshot handles we had
 
         // get total disk space used by snapshots
         val sizeMap = mutableMapOf<String, Int>()
@@ -71,6 +75,10 @@ internal class Checker(
 
         if (snapshots == null) getBackupSize() // just get size again to be sure we get snapshots
         val snapshots = snapshots ?: error("Snapshots still null")
+        val handleSize = handleSize ?: error("Handle size still null")
+        check(handleSize >= snapshots.size) {
+            "Got $handleSize handles, but ${snapshots.size} snapshots."
+        }
         val blobSample = getBlobSample(snapshots, percent)
         val sampleSize = blobSample.values.sumOf { it.length.toLong() }
         log.info { "Blob sample has ${blobSample.size} blobs worth $sampleSize bytes." }
@@ -78,6 +86,7 @@ internal class Checker(
         // check blobs concurrently
         val semaphore = Semaphore(concurrencyLimit)
         val size = AtomicLong()
+        val badChunks = ConcurrentSkipListSet<String>()
         val lastNotification = AtomicLong()
         val startTime = System.currentTimeMillis()
         coroutineScope {
@@ -86,8 +95,13 @@ internal class Checker(
                 launch {
                     // suspend here until we get a permit from the semaphore (there's free workers)
                     semaphore.withPermit {
-                        // TODO record errors
-                        checkBlob(chunkId, blob)
+                        try {
+                            checkBlob(chunkId, blob)
+                        } catch (e: Exception) {
+                            log.error(e) { "Error loading chunk $chunkId: " }
+                            // TODO we could try differentiating transient backend issues
+                            badChunks.add(chunkId)
+                        }
                     }
                     // keep track of how much we checked and for how long
                     val newSize = size.addAndGet(blob.length.toLong())
@@ -106,10 +120,15 @@ internal class Checker(
         if (sampleSize != size.get()) log.error {
             "Checked ${size.get()} bytes, but expected $sampleSize"
         }
-        val passedTime = System.currentTimeMillis() - startTime
+        val passedTime = max(System.currentTimeMillis() - startTime, 1000) // no div by zero
         val bandwidth = size.get() / (passedTime.toDouble() / 1000).roundToLong()
-        nm.onCheckComplete(size.get(), bandwidth)
-        checkerResult = CheckerResult.Success(snapshots, percent, size.get())
+        checkerResult = if (badChunks.isEmpty() && handleSize == snapshots.size && handleSize > 0) {
+            nm.onCheckComplete(size.get(), bandwidth)
+            CheckerResult.Success(snapshots, percent, size.get())
+        } else {
+            nm.onCheckFinishedWithError(size.get(), bandwidth)
+            CheckerResult.Error(handleSize, snapshots, badChunks)
+        }
         this.snapshots = null
     }
 

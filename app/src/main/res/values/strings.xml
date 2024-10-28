@@ -191,11 +191,17 @@
     <string name="notification_checking_title">Checking app backups…</string>
     <string name="notification_checking_finished_title">App backup integrity verified</string>
     <string name="notification_checking_finished_text">Successfully checked %1$s at an average speed of %2$s.</string>
+    <string name="notification_checking_error_title">Backup errors found</string>
+    <string name="notification_checking_error_text">Tap for details. We checked %1$s at an average speed of %2$s.</string>
     <string name="notification_checking_action">Details</string>
 
     <string name="backup_app_check_success_intro">%1$d snapshots were found and %2$d%% of their data (%3$s) successfully verified:</string>
     <string name="backup_app_check_success_disclaimer">Note: We can not verify whether apps include all of their data in the backup.</string>
+    <string name="backup_app_check_error_title">@string/notification_checking_error_title</string>
     <string name="backup_app_check_error_no_snapshots">We could not find any backup. Please run a successful backup first and then try checking again.</string>
+    <string name="backup_app_check_error_only_broken_snapshots">We found %1$d backup snapshots. However, all of them were corrupted. Please run a successful backup and then try checking again.</string>
+    <string name="backup_app_check_error_some_snapshots">We found %1$d backup snapshots. However, we could only read the following %2$d snapshots.</string>
+    <string name="backup_app_check_error_read_all_snapshots">We found %1$d backup snapshots. However, some had errors and can not be fully restored.</string>
 
     <!-- App Backup and Restore State -->
 
@@ -229,6 +235,7 @@
     <string name="restore_restore_set_apps_no_size">Has user data for <xliff:g example="42" id="apps">%1$d</xliff:g> apps</string>
     <string name="restore_restore_set_apks">Contains <xliff:g example="42" id="apps">%1$d</xliff:g> apps (<xliff:g example="1 GB" id="size">%2$s</xliff:g>)</string>
     <string name="restore_restore_set_apks_no_size">Contains <xliff:g example="42" id="apps">%1$d</xliff:g> apps</string>
+    <string name="restore_restore_set_can_not_get_restored">Can not be (fully) restored.</string>
     <string name="restore_skip">Don\'t restore</string>
     <string name="restore_skip_apps">Skip restoring apps</string>
     <string name="restore_invalid_location_title">No backups found</string>

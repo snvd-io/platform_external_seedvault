@@ -363,6 +363,31 @@ internal class BackupNotificationManager(private val context: Context) {
             formatShortFileSize(context, size),
             "${formatShortFileSize(context, speed)}/s",
         )
+        val notification = getOnCheckFinishedBuilder()
+            .setContentTitle(context.getString(R.string.notification_checking_finished_title))
+            .setContentText(text)
+            .setSmallIcon(R.drawable.ic_cloud_done)
+            .build()
+        nm.cancel(NOTIFICATION_ID_CHECKING)
+        nm.notify(NOTIFICATION_ID_CHECK_FINISHED, notification)
+    }
+
+    fun onCheckFinishedWithError(size: Long, speed: Long) {
+        val text = context.getString(
+            R.string.notification_checking_error_text,
+            formatShortFileSize(context, size),
+            "${formatShortFileSize(context, speed)}/s",
+        )
+        val notification = getOnCheckFinishedBuilder()
+            .setContentTitle(context.getString(R.string.notification_checking_error_title))
+            .setContentText(text)
+            .setSmallIcon(R.drawable.ic_cloud_error)
+            .build()
+        nm.cancel(NOTIFICATION_ID_CHECKING)
+        nm.notify(NOTIFICATION_ID_CHECK_FINISHED, notification)
+    }
+
+    private fun getOnCheckFinishedBuilder(): Builder {
         // the background activity launch (BAL) gets restricted for setDeleteIntent()
         // if we don't use these special ActivityOptions, may cause issues in future SDKs
         val options = ActivityOptions.makeBasic()
@@ -381,17 +406,11 @@ internal class BackupNotificationManager(private val context: Context) {
         val deleteIntent = getActivity(context, 2, dIntent, FLAG_IMMUTABLE, options)
         val actionTitle = context.getString(R.string.notification_checking_action)
         val action = Action.Builder(null, actionTitle, contentIntent).build()
-        val notification = Builder(context, CHANNEL_ID_CHECKING)
-            .setContentTitle(context.getString(R.string.notification_checking_finished_title))
-            .setContentText(text)
-            .setSmallIcon(R.drawable.ic_cloud_done)
+        return Builder(context, CHANNEL_ID_CHECKING)
             .setContentIntent(contentIntent)
             .addAction(action)
             .setDeleteIntent(deleteIntent)
             .setAutoCancel(true)
-            .build()
-        nm.cancel(NOTIFICATION_ID_CHECKING)
-        nm.notify(NOTIFICATION_ID_CHECK_FINISHED, notification)
     }
 
     fun onCheckCompleteNotificationSeen() {

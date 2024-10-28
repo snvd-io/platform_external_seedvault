@@ -7,6 +7,8 @@ package com.stevesoltys.seedvault.ui.check
 
 import android.os.Bundle
 import android.text.format.Formatter.formatShortFileSize
+import android.view.View.GONE
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.stevesoltys.seedvault.R
@@ -52,10 +54,7 @@ class AppCheckResultActivity : BackupActivity() {
     private fun onActionReceived() {
         when (val result = checker.checkerResult) {
             is CheckerResult.Success -> onSuccess(result)
-            is CheckerResult.Error -> {
-                // TODO
-                log.info { "snapshots: ${result.snapshots.size}, errors: ${result.errors.size}" }
-            }
+            is CheckerResult.Error -> onError(result)
             is CheckerResult.GeneralError, null -> {
                 // TODO
                 if (result == null) log.error { "No more result" }
@@ -66,7 +65,7 @@ class AppCheckResultActivity : BackupActivity() {
     }
 
     private fun onSuccess(result: CheckerResult.Success) {
-        setContentView(R.layout.activity_check_success)
+        setContentView(R.layout.activity_check_result)
         val intro = getString(
             R.string.backup_app_check_success_intro,
             result.snapshots.size,
@@ -81,6 +80,44 @@ class AppCheckResultActivity : BackupActivity() {
             items = result.snapshots.map { snapshot ->
                 RestorableBackup("", snapshot)
             }.sortedByDescending { it.time },
+        )
+    }
+
+    private fun onError(result: CheckerResult.Error) {
+        setContentView(R.layout.activity_check_result)
+        requireViewById<ImageView>(R.id.imageView).setImageResource(R.drawable.ic_cloud_error)
+        requireViewById<TextView>(R.id.titleView).setText(R.string.backup_app_check_error_title)
+        val disclaimerView = requireViewById<TextView>(R.id.disclaimerView)
+
+        val intro = if (result.existingSnapshots == 0) {
+            disclaimerView.visibility = GONE
+            getString(R.string.backup_app_check_error_no_snapshots)
+        } else if (result.snapshots.isEmpty()) {
+            disclaimerView.visibility = GONE
+            getString(
+                R.string.backup_app_check_error_only_broken_snapshots,
+                result.existingSnapshots,
+            )
+        } else if (result.existingSnapshots > result.snapshots.size) {
+            getString(
+                R.string.backup_app_check_error_some_snapshots,
+                result.existingSnapshots,
+                result.snapshots.size,
+            )
+        } else {
+            getString(R.string.backup_app_check_error_read_all_snapshots, result.snapshots.size)
+        }
+        requireViewById<TextView>(R.id.introView).text = intro
+
+        val items = (result.goodSnapshots.map { snapshot ->
+            RestorableBackup("", snapshot)
+        } + result.badSnapshots.map { snapshot ->
+            RestorableBackup("", snapshot, false)
+        }).sortedByDescending { it.time }
+        val listView = requireViewById<RecyclerView>(R.id.listView)
+        listView.adapter = RestoreSetAdapter(
+            listener = null,
+            items = items,
         )
     }
 
