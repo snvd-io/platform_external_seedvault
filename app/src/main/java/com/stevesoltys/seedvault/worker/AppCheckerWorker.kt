@@ -17,10 +17,12 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.stevesoltys.seedvault.BackupStateManager
 import com.stevesoltys.seedvault.repo.Checker
 import com.stevesoltys.seedvault.ui.notification.BackupNotificationManager
 import com.stevesoltys.seedvault.ui.notification.NOTIFICATION_ID_CHECKING
 import io.github.oshai.kotlinlogging.KotlinLogging
+import kotlinx.coroutines.flow.first
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.time.Duration
@@ -50,12 +52,16 @@ class AppCheckerWorker(
     }
 
     private val log = KotlinLogging.logger {}
+    private val backupStateManager: BackupStateManager by inject()
     private val checker: Checker by inject()
     private val nm: BackupNotificationManager by inject()
 
     override suspend fun doWork(): Result {
-        // TODO don't let backup/restore happen while we check
         log.info { "Start worker $this ($id)" }
+        if (backupStateManager.isBackupRunning.first()) {
+            Log.i(TAG, "isBackupRunning was true, so retrying later...")
+            return Result.retry()
+        }
         try {
             setForeground(createForegroundInfo())
         } catch (e: Exception) {
@@ -64,14 +70,8 @@ class AppCheckerWorker(
         val percent = inputData.getInt(PERCENT, -1)
         check(percent in 0..100) { "Percent $percent out of bounds." }
 
-        return try {
-            checker.check(percent)
-            Result.success()
-        } catch (e: Exception) {
-            // TODO maybe show error notification
-            log.error(e) { "Error while checking data: " }
-            Result.retry()
-        }
+        checker.check(percent)
+        return Result.success()
     }
 
     private fun createForegroundInfo() = ForegroundInfo(

@@ -49,6 +49,7 @@ class SettingsFragment : PreferenceFragmentCompat() {
     private lateinit var backupLocation: Preference
     private lateinit var backupStatus: Preference
     private lateinit var backupScheduling: Preference
+    private lateinit var backupAppCheck: Preference
     private lateinit var backupStorage: TwoStatePreference
     private lateinit var backupRecoveryCode: Preference
 
@@ -92,14 +93,8 @@ class SettingsFragment : PreferenceFragmentCompat() {
 
         backupLocation = findPreference("backup_location")!!
         backupLocation.setOnPreferenceClickListener {
-            if (viewModel.isBackupRunning.value) {
-                // don't allow changing backup destination while backup is running
-                // TODO we could show toast or snackbar here
-                false
-            } else {
-                viewModel.chooseBackupLocation()
-                true
-            }
+            viewModel.chooseBackupLocation()
+            true
         }
 
         autoRestore = findPreference(PREF_KEY_AUTO_RESTORE)!!
@@ -117,6 +112,7 @@ class SettingsFragment : PreferenceFragmentCompat() {
 
         backupStatus = findPreference("backup_status")!!
         backupScheduling = findPreference("backup_scheduling")!!
+        backupAppCheck = findPreference("backup_app_check")!!
 
         backupStorage = findPreference("backup_storage")!!
         backupStorage.onPreferenceChangeListener = OnPreferenceChangeListener { _, newValue ->
@@ -148,6 +144,8 @@ class SettingsFragment : PreferenceFragmentCompat() {
         viewModel.backupPossible.observe(viewLifecycleOwner) { possible ->
             toolbar.menu.findItem(R.id.action_backup)?.isEnabled = possible
             toolbar.menu.findItem(R.id.action_restore)?.isEnabled = possible
+            backupLocation.isEnabled = possible
+            backupAppCheck.isEnabled = possible
         }
 
         viewModel.lastBackupTime.observe(viewLifecycleOwner) { time ->

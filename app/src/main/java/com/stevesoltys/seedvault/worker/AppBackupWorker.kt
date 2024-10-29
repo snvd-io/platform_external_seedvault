@@ -22,12 +22,14 @@ import androidx.work.OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.stevesoltys.seedvault.BackupStateManager
 import com.stevesoltys.seedvault.R
 import com.stevesoltys.seedvault.backend.BackendManager
 import com.stevesoltys.seedvault.repo.AppBackupManager
 import com.stevesoltys.seedvault.settings.SettingsManager
 import com.stevesoltys.seedvault.ui.notification.BackupNotificationManager
 import com.stevesoltys.seedvault.ui.notification.NOTIFICATION_ID_OBSERVER
+import kotlinx.coroutines.flow.first
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.util.concurrent.TimeUnit
@@ -100,6 +102,7 @@ class AppBackupWorker(
         }
     }
 
+    private val backupStateManager: BackupStateManager by inject()
     private val backupRequester: BackupRequester by inject()
     private val settingsManager: SettingsManager by inject()
     private val apkBackupManager: ApkBackupManager by inject()
@@ -109,6 +112,10 @@ class AppBackupWorker(
 
     override suspend fun doWork(): Result {
         Log.i(TAG, "Start worker  $this ($id)")
+        if (backupStateManager.isCheckOrPruneRunning.first()) {
+            Log.i(TAG, "isCheckOrPruneRunning was true, so retrying later...")
+            return Result.retry()
+        }
         try {
             setForeground(createForegroundInfo())
         } catch (e: Exception) {
