@@ -42,8 +42,8 @@ internal class Checker(
     private var snapshots: List<Snapshot>? = null
     private val concurrencyLimit: Int
         get() {
-            // TODO determine also based on backendManager
-            return Runtime.getRuntime().availableProcessors()
+            val maxConcurrent = if (backendManager.requiresNetwork) 3 else 42
+            return min(Runtime.getRuntime().availableProcessors(), maxConcurrent)
         }
     var checkerResult: CheckerResult? = null
         private set

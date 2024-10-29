@@ -43,6 +43,7 @@ class BackendManager(
             return mBackendProperties
         }
     val isOnRemovableDrive: Boolean get() = backendProperties?.isUsb == true
+    val requiresNetwork: Boolean get() = backendProperties?.requiresNetwork == true
 
     init {
         when (settingsManager.storagePluginType) {

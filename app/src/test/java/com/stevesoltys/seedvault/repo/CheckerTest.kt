@@ -86,6 +86,7 @@ internal class CheckerTest : TransportTest() {
     fun `check works even with no backup data`() = runBlocking {
         expectLoadingSnapshots(emptyMap())
 
+        every { backendManager.requiresNetwork } returns Random.nextBoolean()
         every { nm.onCheckFinishedWithError(0, 0) } just Runs
 
         assertNull(checker.checkerResult)
@@ -121,6 +122,7 @@ internal class CheckerTest : TransportTest() {
             snapshotHandle2 to snapshot.copy { token = 2 },
         )
         expectLoadingSnapshots(snapshotMap)
+        every { backendManager.requiresNetwork } returns Random.nextBoolean()
 
         val data = ByteArray(0)
         coEvery { loader.loadFile(blobHandle1, null) } returns ByteArrayInputStream(data)
@@ -172,6 +174,7 @@ internal class CheckerTest : TransportTest() {
             },
         )
         expectLoadingSnapshots(snapshotMap)
+        every { backendManager.requiresNetwork } returns Random.nextBoolean()
 
         coEvery { loader.loadFile(blobHandle1, null) } returns ByteArrayInputStream(data1)
         coEvery { loader.loadFile(blobHandle2, null) } throws GeneralSecurityException()
@@ -220,6 +223,7 @@ internal class CheckerTest : TransportTest() {
         val expectedSize = blob1.length.toLong() + blob2.length.toLong()
 
         expectLoadingSnapshots(snapshotMap)
+        every { backendManager.requiresNetwork } returns Random.nextBoolean()
 
         coEvery { loader.loadFile(blobHandle1, null) } returns ByteArrayInputStream(data1)
         coEvery { loader.loadFile(blobHandle2, null) } returns ByteArrayInputStream(data2)
@@ -257,6 +261,7 @@ internal class CheckerTest : TransportTest() {
             },
         )
         expectLoadingSnapshots(snapshotMap)
+        every { backendManager.requiresNetwork } returns Random.nextBoolean()
 
         // only loading app data, not other blobs
         coEvery { loader.loadFile(appDataBlobHandle1, null) } throws SecurityException()
