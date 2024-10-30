@@ -63,6 +63,15 @@ class BlobCache(
     operator fun get(chunkId: String): Blob? = blobMap[chunkId]
 
     /**
+     * Should only be called after [populateCache] has returned.
+     *
+     * @return true if all [chunkIds] are in cache, or false if one or more is missing.
+     */
+    fun containsAll(chunkIds: List<String>): Boolean = chunkIds.all { chunkId ->
+        blobMap.containsKey(chunkId)
+    }
+
+    /**
      * Should get called for all new blobs as soon as they've been saved to the backend.
      */
     fun saveNewBlob(chunkId: String, blob: Blob) {
