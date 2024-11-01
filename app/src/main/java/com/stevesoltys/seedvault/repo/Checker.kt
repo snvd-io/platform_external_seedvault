@@ -6,6 +6,7 @@
 package com.stevesoltys.seedvault.repo
 
 import androidx.annotation.WorkerThread
+import com.google.protobuf.ByteString
 import com.stevesoltys.seedvault.backend.BackendManager
 import com.stevesoltys.seedvault.crypto.Crypto
 import com.stevesoltys.seedvault.proto.Snapshot
@@ -71,10 +72,12 @@ internal class Checker(
         this.handleSize = handles.size // remember number of snapshot handles we had
 
         // get total disk space used by snapshots
-        val sizeMap = mutableMapOf<String, Int>()
+        val sizeMap = mutableMapOf<ByteString, Int>() // uses blob.id as key
         snapshots.forEach { snapshot ->
             // add sizes to a map first, so we don't double count
-            snapshot.blobsMap.forEach { (chunkId, blob) -> sizeMap[chunkId] = blob.length }
+            snapshot.blobsMap.forEach { (_, blob) ->
+                sizeMap[blob.id] = blob.length
+            }
         }
         return sizeMap.values.sumOf { it.toLong() }
     }
@@ -96,13 +99,13 @@ internal class Checker(
             "Got $handleSize handles, but ${snapshots.size} snapshots."
         }
         val blobSample = getBlobSample(snapshots, percent)
-        val sampleSize = blobSample.values.sumOf { it.length.toLong() }
+        val sampleSize = blobSample.sumOf { it.blob.length.toLong() }
         log.info { "Blob sample has ${blobSample.size} blobs worth $sampleSize bytes." }
 
         // check blobs concurrently
         val semaphore = Semaphore(concurrencyLimit)
         val size = AtomicLong()
-        val badChunks = ConcurrentSkipListSet<String>()
+        val badChunks = ConcurrentSkipListSet<ChunkIdBlobPair>()
         val lastNotification = AtomicLong()
         val startTime = System.currentTimeMillis()
         coroutineScope {
@@ -116,7 +119,7 @@ internal class Checker(
                         } catch (e: Exception) {
                             log.error(e) { "Error loading chunk $chunkId: " }
                             // TODO we could try differentiating transient backend issues
-                            badChunks.add(chunkId)
+                            badChunks.add(ChunkIdBlobPair(chunkId, blob))
                         }
                     }
                     // keep track of how much we checked and for how long
@@ -154,25 +157,30 @@ internal class Checker(
         checkerResult = null
     }
 
-    private fun getBlobSample(snapshots: List<Snapshot>, percent: Int): Map<String, Blob> {
-        // split up blobs for app data and for APKs
-        val appBlobs = mutableMapOf<String, Blob>()
-        val apkBlobs = mutableMapOf<String, Blob>()
+    private fun getBlobSample(
+        snapshots: List<Snapshot>,
+        percent: Int,
+    ): List<ChunkIdBlobPair> {
+        // split up blobs for app data and for APKs (use blob.id as key to prevent double counting)
+        val appBlobs = mutableMapOf<ByteString, ChunkIdBlobPair>()
+        val apkBlobs = mutableMapOf<ByteString, ChunkIdBlobPair>()
         snapshots.forEach { snapshot ->
             val appChunkIds = snapshot.appsMap.flatMap { it.value.chunkIdsList.hexFromProto() }
             val apkChunkIds = snapshot.appsMap.flatMap {
                 it.value.apk.splitsList.flatMap { split -> split.chunkIdsList.hexFromProto() }
             }
             appChunkIds.forEach { chunkId ->
-                appBlobs[chunkId] = snapshot.blobsMap[chunkId] ?: error("No Blob for chunkId")
+                val blob = snapshot.blobsMap[chunkId] ?: error("No Blob for chunkId")
+                appBlobs[blob.id] = ChunkIdBlobPair(chunkId, blob)
             }
             apkChunkIds.forEach { chunkId ->
-                apkBlobs[chunkId] = snapshot.blobsMap[chunkId] ?: error("No Blob for chunkId")
+                val blob = snapshot.blobsMap[chunkId] ?: error("No Blob for chunkId")
+                apkBlobs[blob.id] = ChunkIdBlobPair(chunkId, blob)
             }
         }
         // calculate sizes
-        val appSize = appBlobs.values.sumOf { it.length.toLong() }
-        val apkSize = apkBlobs.values.sumOf { it.length.toLong() }
+        val appSize = appBlobs.values.sumOf { it.blob.length.toLong() }
+        val apkSize = apkBlobs.values.sumOf { it.blob.length.toLong() }
         // let's assume it is unlikely that app data and APKs have blobs in common
         val totalSize = appSize + apkSize
         log.info { "Got ${appBlobs.size + apkBlobs.size} blobs worth $totalSize bytes to check." }
@@ -182,23 +190,21 @@ internal class Checker(
         val appTargetSize = min((targetSize * 0.75).roundToLong(), appSize) // 75% of targetSize
         log.info { "Sampling $targetSize bytes of which $appTargetSize bytes for apps." }
 
-        val blobSample = mutableMapOf<String, Blob>()
+        val blobSample = mutableListOf<ChunkIdBlobPair>()
         var currentSize = 0L
         // check apps first until we reach their target size
-        val appIterator = appBlobs.keys.shuffled().iterator() // random app blob iterator
+        val appIterator = appBlobs.values.shuffled().iterator() // random app blob iterator
         while (currentSize < appTargetSize && appIterator.hasNext()) {
-            val randomChunkId = appIterator.next()
-            val blob = appBlobs[randomChunkId] ?: error("No blob")
-            blobSample[randomChunkId] = blob
-            currentSize += blob.length
+            val pair = appIterator.next()
+            blobSample.add(pair)
+            currentSize += pair.blob.length
         }
         // now check APKs until we reach total targetSize
-        val apkIterator = apkBlobs.keys.shuffled().iterator() // random APK blob iterator
+        val apkIterator = apkBlobs.values.shuffled().iterator() // random APK blob iterator
         while (currentSize < targetSize && apkIterator.hasNext()) {
-            val randomChunkId = apkIterator.next()
-            val blob = apkBlobs[randomChunkId] ?: error("No blob")
-            blobSample[randomChunkId] = blob
-            currentSize += blob.length
+            val pair = apkIterator.next()
+            blobSample.add(pair)
+            currentSize += pair.blob.length
         }
         return blobSample
     }
@@ -214,5 +220,11 @@ internal class Checker(
             }
         }
         if (readChunkId != chunkId) throw GeneralSecurityException("ChunkId doesn't match")
+    }
+}
+
+data class ChunkIdBlobPair(val chunkId: String, val blob: Blob) : Comparable<ChunkIdBlobPair> {
+    override fun compareTo(other: ChunkIdBlobPair): Int {
+        return chunkId.compareTo(other.chunkId)
     }
 }

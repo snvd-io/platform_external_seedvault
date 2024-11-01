@@ -83,6 +83,36 @@ internal class CheckerTest : TransportTest() {
     }
 
     @Test
+    fun `getBackupSize returns size without under-counting blobs with same chunkId`() =
+        runBlocking {
+            val apk = apk.copy {
+                splits.clear()
+                splits.add(baseSplit.copy {
+                    this.chunkIds.clear()
+                    chunkIds.add(ByteString.fromHex(chunkId1))
+                })
+            }
+            val snapshot = snapshot.copy {
+                apps[packageName] = app.copy { this.apk = apk }
+                blobs.clear()
+            }
+            val snapshotMap = mapOf(
+                snapshotHandle1 to snapshot.copy {
+                    token = 1
+                    blobs[chunkId1] = blob1
+                },
+                snapshotHandle2 to snapshot.copy {
+                    token = 2
+                    blobs[chunkId1] = blob2
+                },
+            )
+            val expectedSize = blob1.length.toLong() + blob2.length.toLong()
+            expectLoadingSnapshots(snapshotMap)
+
+            assertEquals(expectedSize, checker.getBackupSize())
+        }
+
+    @Test
     fun `check works even with no backup data`() = runBlocking {
         expectLoadingSnapshots(emptyMap())
 
@@ -138,7 +168,8 @@ internal class CheckerTest : TransportTest() {
         assertEquals(snapshotMap.values.toSet(), result.badSnapshots.toSet())
         assertEquals(emptyList<Snapshot>(), result.goodSnapshots)
         assertEquals(snapshotMap.size, result.existingSnapshots)
-        assertEquals(setOf(chunkId1, chunkId2), result.errorChunkIds)
+        val errorPairs = setOf(ChunkIdBlobPair(chunkId1, blob1), ChunkIdBlobPair(chunkId2, blob2))
+        assertEquals(errorPairs, result.errorChunkIdBlobPairs)
     }
 
     @Test
@@ -189,7 +220,8 @@ internal class CheckerTest : TransportTest() {
         assertEquals(listOf(snapshotMap[snapshotHandle1]), result.goodSnapshots)
         assertEquals(listOf(snapshotMap[snapshotHandle2]), result.badSnapshots)
         assertEquals(snapshotMap.size, result.existingSnapshots)
-        assertEquals(setOf(chunkId2), result.errorChunkIds)
+        val errorPairs = setOf(ChunkIdBlobPair(chunkId2, blob2))
+        assertEquals(errorPairs, result.errorChunkIdBlobPairs)
     }
 
     @Test
@@ -247,8 +279,8 @@ internal class CheckerTest : TransportTest() {
     fun `check prefers app data over APKs`() = runBlocking {
         val appDataBlob = blob {
             id = ByteString.copyFrom(Random.nextBytes(32))
-            length = Random.nextInt(0, Int.MAX_VALUE)
-            uncompressedLength = Random.nextInt(0, Int.MAX_VALUE)
+            length = Random.nextInt(1, Int.MAX_VALUE)
+            uncompressedLength = Random.nextInt(1, Int.MAX_VALUE)
         }
         val appDataBlobHandle1 = AppBackupFileType.Blob(repoId, appDataBlob.id.hexFromProto())
         val appDataChunkId = Random.nextBytes(32).toHexString()
@@ -266,6 +298,7 @@ internal class CheckerTest : TransportTest() {
         // only loading app data, not other blobs
         coEvery { loader.loadFile(appDataBlobHandle1, null) } throws SecurityException()
 
+        println("appDataBlob.length = $appDataBlob.length")
         every { nm.onCheckFinishedWithError(appDataBlob.length.toLong(), any()) } just Runs
 
         assertNull(checker.checkerResult)
@@ -275,12 +308,62 @@ internal class CheckerTest : TransportTest() {
         assertEquals(snapshotMap.values.toSet(), result.snapshots.toSet())
         assertEquals(snapshotMap.values.toSet(), result.badSnapshots.toSet())
         assertEquals(snapshotMap.size, result.existingSnapshots)
-        assertEquals(setOf(appDataChunkId), result.errorChunkIds)
+        val errorPairs = setOf(ChunkIdBlobPair(appDataChunkId, appDataBlob))
+        assertEquals(errorPairs, result.errorChunkIdBlobPairs)
 
         coVerify(exactly = 0) {
             loader.loadFile(blobHandle1, null)
             loader.loadFile(blobHandle2, null)
         }
+    }
+
+    @Test
+    fun `check doesn't skip broken blobs that have a fix with same chunkID`() = runBlocking {
+        // get "real" data for blob2
+        val messageDigest = MessageDigest.getInstance("SHA-256")
+        val data1 = getRandomByteArray() // broken blob
+        val data2 = getRandomByteArray() // data2 matches chunkId
+        val chunkId = messageDigest.digest(data2).toHexString()
+        val apk = apk.copy {
+            splits.clear()
+            splits.add(baseSplit.copy {
+                this.chunkIds.clear()
+                chunkIds.add(ByteString.fromHex(chunkId))
+            })
+        }
+        val snapshot = snapshot.copy {
+            apps[packageName] = app.copy { this.apk = apk }
+            blobs.clear()
+        }
+        val snapshotMap = mapOf(
+            snapshotHandle1 to snapshot.copy {
+                token = 1
+                blobs[chunkId] = blob1 // snapshot1 has broken blob for chunkId
+            },
+            snapshotHandle2 to snapshot.copy {
+                token = 2
+                blobs[chunkId] = blob2 // snapshot2 has fixed blob for chunkId
+            },
+        )
+
+        expectLoadingSnapshots(snapshotMap)
+        every { backendManager.requiresNetwork } returns Random.nextBoolean()
+
+        coEvery { loader.loadFile(blobHandle1, null) } returns ByteArrayInputStream(data1)
+        coEvery { loader.loadFile(blobHandle2, null) } returns ByteArrayInputStream(data2)
+
+        every { nm.onCheckFinishedWithError(any(), any()) } just Runs
+
+        assertNull(checker.checkerResult)
+        checker.check(100)
+        assertInstanceOf(CheckerResult.Error::class.java, checker.checkerResult)
+        val result = checker.checkerResult as CheckerResult.Error
+        assertEquals(snapshotMap.values.toSet(), result.snapshots.toSet())
+        assertEquals(setOf(snapshotMap[snapshotHandle2]), result.goodSnapshots.toSet())
+        assertEquals(setOf(snapshotMap[snapshotHandle1]), result.badSnapshots.toSet())
+        assertEquals(snapshotMap.size, result.existingSnapshots)
+        val errorPairs = setOf(ChunkIdBlobPair(chunkId, blob1))
+        assertEquals(errorPairs, result.errorChunkIdBlobPairs)
     }
 
     private suspend fun expectLoadingSnapshots(
