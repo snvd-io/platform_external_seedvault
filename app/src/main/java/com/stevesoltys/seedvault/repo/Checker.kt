@@ -7,6 +7,7 @@ package com.stevesoltys.seedvault.repo
 
 import androidx.annotation.WorkerThread
 import com.google.protobuf.ByteString
+import com.stevesoltys.seedvault.MemoryLogger
 import com.stevesoltys.seedvault.backend.BackendManager
 import com.stevesoltys.seedvault.crypto.Crypto
 import com.stevesoltys.seedvault.proto.Snapshot
@@ -35,6 +36,7 @@ internal class Checker(
     private val backendManager: BackendManager,
     private val snapshotManager: SnapshotManager,
     private val loader: Loader,
+    private val blobCache: BlobCache,
     private val nm: BackupNotificationManager,
 ) {
     private val log = KotlinLogging.logger { }
@@ -116,6 +118,10 @@ internal class Checker(
                     semaphore.withPermit {
                         try {
                             checkBlob(chunkId, blob)
+                        } catch (e: HashMismatchException) {
+                            log.error(e) { "Error loading chunk $chunkId: " }
+                            badChunks.add(ChunkIdBlobPair(chunkId, blob))
+                            blobCache.doNotUseBlob(blob.id)
                         } catch (e: Exception) {
                             log.error(e) { "Error loading chunk $chunkId: " }
                             // TODO we could try differentiating transient backend issues
@@ -132,6 +138,7 @@ internal class Checker(
                         val thousandth = ((newSize.toDouble() / sampleSize) * 1000).roundToInt()
                         log.debug { "$thousandth‰ - $bandwidth KB/sec - $newSize bytes" }
                         nm.showCheckNotification(bandwidth, thousandth)
+                        MemoryLogger.log()
                     }
                 }
             }

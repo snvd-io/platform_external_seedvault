@@ -32,7 +32,6 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import java.io.ByteArrayInputStream
 import java.io.IOException
-import java.security.GeneralSecurityException
 import java.security.MessageDigest
 import kotlin.random.Random
 
@@ -41,10 +40,11 @@ internal class CheckerTest : TransportTest() {
     private val backendManager: BackendManager = mockk()
     private val snapshotManager: SnapshotManager = mockk()
     private val loader: Loader = mockk()
+    private val blobCache: BlobCache = mockk()
     private val nm: BackupNotificationManager = mockk()
     private val backend: Backend = mockk()
 
-    private val checker = Checker(crypto, backendManager, snapshotManager, loader, nm)
+    private val checker = Checker(crypto, backendManager, snapshotManager, loader, blobCache, nm)
     private val folder = TopLevelFolder(repoId)
 
     private val snapshotHandle1 =
@@ -173,7 +173,7 @@ internal class CheckerTest : TransportTest() {
     }
 
     @Test
-    fun `check raises error for loader failure`() = runBlocking {
+    fun `check records hash error from loader`() = runBlocking {
         // chunkId is "real"
         val data1 = getRandomByteArray()
         val chunkId1 = MessageDigest.getInstance("SHA-256").digest(data1).toHexString()
@@ -208,8 +208,9 @@ internal class CheckerTest : TransportTest() {
         every { backendManager.requiresNetwork } returns Random.nextBoolean()
 
         coEvery { loader.loadFile(blobHandle1, null) } returns ByteArrayInputStream(data1)
-        coEvery { loader.loadFile(blobHandle2, null) } throws GeneralSecurityException()
+        coEvery { loader.loadFile(blobHandle2, null) } throws HashMismatchException()
 
+        every { blobCache.doNotUseBlob(ByteString.fromHex(blobHandle2.name)) } just Runs
         every { nm.onCheckFinishedWithError(any(), any()) } just Runs
 
         assertNull(checker.checkerResult)

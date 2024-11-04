@@ -7,7 +7,10 @@ package com.stevesoltys.seedvault.repo
 
 import android.content.Context
 import android.content.Context.MODE_APPEND
+import android.content.Context.MODE_PRIVATE
+import androidx.annotation.VisibleForTesting
 import androidx.annotation.WorkerThread
+import com.google.protobuf.ByteString
 import com.stevesoltys.seedvault.MemoryLogger
 import com.stevesoltys.seedvault.proto.Snapshot
 import com.stevesoltys.seedvault.proto.Snapshot.Blob
@@ -18,7 +21,18 @@ import org.calyxos.seedvault.core.toHexString
 import java.io.FileNotFoundException
 import java.io.IOException
 
-private const val CACHE_FILE_NAME = "blobsCache"
+@VisibleForTesting
+internal const val CACHE_FILE_NAME = "blobsCache"
+
+/**
+ * The filename of the file where we store which blobs are known to be corrupt
+ * and should not be used anymore.
+ * Each [BLOB_ID_SIZE] bytes are appended without separator or line breaks.
+ */
+@VisibleForTesting
+internal const val DO_NOT_USE_FILE_NAME = "doNotUseBlobs"
+
+private const val BLOB_ID_SIZE = 32
 
 /**
  * Responsible for caching blobs during a backup run,
@@ -73,6 +87,10 @@ class BlobCache(
 
     /**
      * Should get called for all new blobs as soon as they've been saved to the backend.
+     *
+     * We shouldn't need to worry about [Pruner] removing blobs that get cached here locally,
+     * because we do run [Pruner.removeOldSnapshotsAndPruneUnusedBlobs] only after
+     * a successful backup which is when we also clear cache in [clearLocalCache].
      */
     fun saveNewBlob(chunkId: String, blob: Blob) {
         val previous = blobMap.put(chunkId, blob)
@@ -160,6 +178,10 @@ class BlobCache(
             if (sizeOnBackend == blob.length) {
                 // only add blob to our mapping, if it still exists
                 blobMap.putIfAbsent(chunkId, blob)?.let { previous ->
+                    // If there's more than one blob for the same chunk ID, it shouldn't matter
+                    // which one we keep on using provided both are still ok.
+                    // When we are here, the blob exists on storage and has the same size.
+                    // There may still be other corruption such as bit flips in one of the blobs.
                     if (previous.id != blob.id) log.warn {
                         "Chunk ID ${chunkId.substring(0..5)} had more than one blob."
                     }
@@ -172,6 +194,74 @@ class BlobCache(
                 }
             }
         }
+    }
+
+    /**
+     * This is expected to get called by the [Checker] when it finds a blob
+     * that has the expected file size, but its content hash doesn't match what we expect.
+     *
+     * It appends the given [blobId] to our [DO_NOT_USE_FILE_NAME] file.
+     */
+    fun doNotUseBlob(blobId: ByteString) {
+        try {
+            context.openFileOutput(DO_NOT_USE_FILE_NAME, MODE_APPEND).use { outputStream ->
+                val bytes = blobId.toByteArray()
+                check(bytes.size == 32) { "Blob ID $blobId has unexpected size of ${bytes.size}" }
+                outputStream.write(bytes)
+            }
+        } catch (e: Exception) {
+            log.error(e) { "Error adding blob to do-not-use list, may be corrupted: " }
+        }
+    }
+
+    @VisibleForTesting
+    fun getDoNotUseBlobIds(): Set<String> {
+        val blobsIds = mutableSetOf<String>()
+        try {
+            context.openFileInput(DO_NOT_USE_FILE_NAME).use { inputStream ->
+                val bytes = ByteArray(BLOB_ID_SIZE)
+                while (inputStream.read(bytes) == 32) {
+                    val blobId = bytes.toHexString()
+                    blobsIds.add(blobId)
+                }
+            }
+        } catch (e: FileNotFoundException) {
+            log.info { "No do-not-use list found" }
+        } catch (e: Exception) {
+            log.error(e) { "Our internal do-not-use list is corrupted, deleting it..." }
+            context.deleteFile(DO_NOT_USE_FILE_NAME)
+        }
+        return blobsIds
+    }
+
+    /**
+     * Call this after deleting blobs from the backend,
+     * so we can remove those from our do-not-use list.
+     */
+    fun onBlobsRemoved(blobIds: Set<String>) {
+        log.info { "${blobIds.size} blobs were removed." }
+
+        val blobsIdsToKeep = mutableSetOf<String>()
+
+        try {
+            context.openFileInput(DO_NOT_USE_FILE_NAME).use { inputStream ->
+                val bytes = ByteArray(BLOB_ID_SIZE)
+                while (inputStream.read(bytes) == 32) {
+                    val blobId = bytes.toHexString()
+                    if (blobId !in blobIds) blobsIdsToKeep.add(blobId)
+                }
+            }
+        } catch (e: FileNotFoundException) {
+            log.info { "No do-not-use list found, no need to remove blobs from it." }
+            return
+        } // if something else goes wrong here, we'll delete the file before next backup
+        context.openFileOutput(DO_NOT_USE_FILE_NAME, MODE_PRIVATE).use { outputStream ->
+            blobsIdsToKeep.forEach { blobId ->
+                val bytes = blobId.toByteArrayFromHex()
+                outputStream.write(bytes)
+            }
+        }
+        log.info { "${blobsIdsToKeep.size} blobs remain on do-not-use list." }
     }
 
 }
