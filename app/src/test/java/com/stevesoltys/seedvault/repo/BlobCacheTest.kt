@@ -41,6 +41,9 @@ internal class BlobCacheTest : TransportTest() {
 
             // read saved blobs from cache
             every { strictContext.openFileInput(CACHE_FILE_NAME) } returns file.inputStream()
+            every {
+                strictContext.openFileInput(DO_NOT_USE_FILE_NAME)
+            } throws FileNotFoundException()
             cache.populateCache(listOf(fileInfo1, fileInfo2), emptyList())
 
             // now both blobs are in the map
@@ -62,6 +65,9 @@ internal class BlobCacheTest : TransportTest() {
         BlobCache(strictContext).let { cache ->
             // read saved blobs from cache
             every { strictContext.openFileInput(CACHE_FILE_NAME) } returns file.inputStream()
+            every {
+                strictContext.openFileInput(DO_NOT_USE_FILE_NAME)
+            } throws FileNotFoundException()
             cache.populateCache(listOf(fileInfo2), emptyList()) // fileInfo1 is missing
 
             // now only blob2 gets used, because blob1 wasn't on backend
@@ -80,9 +86,38 @@ internal class BlobCacheTest : TransportTest() {
         BlobCache(strictContext).let { cache ->
             // read saved blobs from cache
             every { strictContext.openFileInput(CACHE_FILE_NAME) } returns file.inputStream()
+            every {
+                strictContext.openFileInput(DO_NOT_USE_FILE_NAME)
+            } throws FileNotFoundException()
             cache.populateCache(listOf(info, fileInfo2), emptyList()) // info has different size now
 
             // now only blob2 gets used, because blob1 wasn't on backend
+            assertNull(cache[chunkId1])
+            assertEquals(blob2, cache[chunkId2])
+        }
+    }
+
+    @Test
+    fun `cached blob doesn't get used if known bad on do-not-use list`(@TempDir tmpDir: Path) {
+        val file = File(tmpDir.toString(), "tmpCache")
+        val doNotUseFile = File(tmpDir.toString(), "doNotUse")
+        BlobCache(strictContext).apply {
+            saveTwoBlobsToCache(file)
+            every { strictContext.openFileOutput(DO_NOT_USE_FILE_NAME, MODE_APPEND) } answers {
+                FileOutputStream(doNotUseFile, true)
+            }
+            doNotUseBlob(blob1.id)
+        }
+
+        BlobCache(strictContext).let { cache ->
+            // read saved blobs from cache
+            every { strictContext.openFileInput(CACHE_FILE_NAME) } returns file.inputStream()
+            every {
+                strictContext.openFileInput(DO_NOT_USE_FILE_NAME)
+            } answers { doNotUseFile.inputStream() }
+            cache.populateCache(listOf(fileInfo1, fileInfo2), emptyList())
+
+            // now only blob2 gets used, because blob1 is on do-not-use-list
             assertNull(cache[chunkId1])
             assertEquals(blob2, cache[chunkId2])
         }

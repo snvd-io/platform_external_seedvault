@@ -59,14 +59,20 @@ class BlobCache(
         blobMap.clear()
         MemoryLogger.log()
         // create map of blobId to size of blob on backend
-        val blobIds = blobs.associate {
+        val allowedBlobIds = blobs.associate {
             Pair(it.fileHandle.name, it.size.toInt())
+        }.toMutableMap()
+        // remove known bad blob IDs from allowedBlobIds
+        getDoNotUseBlobIds().forEach { knownBadId ->
+            if (allowedBlobIds.remove(knownBadId) != null) {
+                log.info { "Removed known bad blob: $knownBadId" }
+            }
         }
         // load local blob cache and include only blobs on backend
-        loadPersistentBlobCache(blobIds)
+        loadPersistentBlobCache(allowedBlobIds)
         // build up mapping from chunkId to blob from available snapshots
         snapshots.forEach { snapshot ->
-            onSnapshotLoaded(snapshot, blobIds)
+            onSnapshotLoaded(snapshot, allowedBlobIds)
         }
         MemoryLogger.log()
     }
@@ -167,14 +173,14 @@ class BlobCache(
 
     /**
      * Used for populating local [blobMap] cache.
-     * Adds mapping from chunkId to [Blob], if it exists on backend, i.e. part of [blobIds]
-     * and its size matches the one on backend, i.e. value of [blobIds].
+     * Adds mapping from chunkId to [Blob], if it exists on backend, i.e. part of [allowedBlobIds]
+     * and its size matches the one on backend, i.e. value of [allowedBlobIds].
      */
-    private fun onSnapshotLoaded(snapshot: Snapshot, blobIds: Map<String, Int>) {
+    private fun onSnapshotLoaded(snapshot: Snapshot, allowedBlobIds: Map<String, Int>) {
         snapshot.blobsMap.forEach { (chunkId, blob) ->
             // check if referenced blob still exists on backend
             val blobId = blob.id.hexFromProto()
-            val sizeOnBackend = blobIds[blobId]
+            val sizeOnBackend = allowedBlobIds[blobId]
             if (sizeOnBackend == blob.length) {
                 // only add blob to our mapping, if it still exists
                 blobMap.putIfAbsent(chunkId, blob)?.let { previous ->
