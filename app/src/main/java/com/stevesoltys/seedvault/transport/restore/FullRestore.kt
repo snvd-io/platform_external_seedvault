@@ -161,7 +161,7 @@ internal class FullRestore(
         return outputFactory.getOutputStream(pfd).use { outputStream ->
             try {
                 copyInputStream(outputStream)
-            } catch (e: IOException) {
+            } catch (e: Exception) {
                 Log.w(TAG, "Error copying stream for package $packageName.", e)
                 return TRANSPORT_PACKAGE_REJECTED
             }
