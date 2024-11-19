@@ -19,6 +19,7 @@ import com.stevesoltys.seedvault.header.HeaderReader
 import com.stevesoltys.seedvault.header.MAX_SEGMENT_LENGTH
 import com.stevesoltys.seedvault.header.UnsupportedVersionException
 import com.stevesoltys.seedvault.header.getADForFull
+import com.stevesoltys.seedvault.repo.HashMismatchException
 import com.stevesoltys.seedvault.repo.Loader
 import libcore.io.IoUtils.closeQuietly
 import org.calyxos.seedvault.core.backends.AppBackupFileType.Blob
@@ -145,6 +146,9 @@ internal class FullRestore(
                 }
             } catch (e: IOException) {
                 Log.w(TAG, "Error getting input stream for $packageName", e)
+                return TRANSPORT_PACKAGE_REJECTED
+            } catch (e: HashMismatchException) {
+                Log.w(TAG, "Hash mismatch for $packageName", e)
                 return TRANSPORT_PACKAGE_REJECTED
             } catch (e: SecurityException) {
                 Log.e(TAG, "Security Exception while getting input stream for $packageName", e)
